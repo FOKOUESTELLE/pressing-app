@@ -11,23 +11,26 @@ class Order extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'user_id',
         'order_number',
+        'order_date',
+        'pickup_address',
+        'delivery_address',
+        'recovery_mode',
         'status',
-        'total_amount',
-        'pickup_date',
-        'delivery_date',
+        'delivery_fee',
+        'total',
+        'customer_id',
     ];
 
     protected $casts = [
-        'total_amount' => 'integer',
-        'pickup_date' => 'date',
-        'delivery_date' => 'date',
+        'order_date' => 'datetime',
+        'delivery_fee' => 'integer',
+        'total' => 'integer',
     ];
 
-    public function user()
+    public function customer()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'customer_id');
     }
 
      public function orderItems()
@@ -48,5 +51,11 @@ class Order extends Model
     public function receipt()
     {
         return $this->hasOne(Receipt::class);
+    }
+
+    public function updateTotal()
+    {
+        $this->total = $this->orderItems()->sum('subtotal');
+        $this->save();
     }
 }

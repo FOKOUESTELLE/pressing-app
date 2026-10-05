@@ -10,11 +10,12 @@ class OrderItem extends Model
      use SoftDeletes;
 
     protected $fillable = [
-        'order_id',
-        'category_id',
         'quantity',
         'unit_price',
         'subtotal',
+        'description',
+        'order_id',
+        'category_id',
     ];
 
     protected $casts = [

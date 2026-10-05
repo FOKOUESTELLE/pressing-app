@@ -11,17 +11,17 @@ class Mission extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'order_id',
-        'user_id',
         'type',
         'status',
-        'description',
-        'scheduled_at',
+        'assigned_at',
         'completed_at',
+        'address',
+        'order_id',
+        'coursier_id',
     ];
 
     protected $casts = [
-        'scheduled_at' => 'datetime',
+         'assigned_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
 
@@ -30,9 +30,9 @@ class Mission extends Model
         return $this->belongsTo(Order::class);
     }
 
-    public function user()
+    public function coursier()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'coursier_id');
     }
 
 
