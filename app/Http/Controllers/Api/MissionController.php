@@ -141,8 +141,23 @@ class MissionController extends Controller
                 'message' => 'Un coursier ne peut pas attribuer sa mission à un autre coursier.',
             ], 403);
         }
+        if (
+            isset($validated['status']) &&
+            $validated['status'] === 'COMPLETED'
+        ){
+            $validated['completed_at'] = now();
+         }
 
         $mission->update($validated);
+
+        if (
+            $mission->type === 'DELIVERY' &&
+            $mission->status === 'COMPLETED'
+        ) {
+            $mission->order->update([
+                'status' => 'DELIVERED',
+            ]);
+        }
 
         return response()->json([
             'success' => true,
