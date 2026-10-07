@@ -22,8 +22,8 @@ class Receipt extends Model
         'issued_at' => 'datetime',
     ];
 
-    public function order()
+    public function payment()
     {
-        return $this->belongsTo(Order::class);
+        return $this->belongsTo(Payment::class);
     }
 }

@@ -27,11 +27,11 @@ class PaymentController extends Controller
      */
     public function store(Request $request)
     {
+
         $validated = $request->validate([
             'amount' => 'required|integer|min:1',
             'payment_date' => 'required|date',
             'payment_method' => 'required|in:CASH,MOBILE_MONEY,CARD',
-            'status' => 'nullable|string|max:255',
             'order_id' => 'required|exists:orders,id',
         ]);
 
@@ -49,6 +49,10 @@ class PaymentController extends Controller
                 'remaining_amount' => $remainingAmount,
             ], 422);
         }
+
+        $validated['status'] = ($validated['amount'] == $remainingAmount)
+            ? 'PAID'
+            : 'PARTIAL';
 
         $payment = Payment::create($validated);
 

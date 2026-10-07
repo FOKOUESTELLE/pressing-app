@@ -45,12 +45,12 @@ class Order extends Model
 
     public function missions()
     {
-        return $this->hasMany(Mission::class);
+        return $this->hasManyThrough(Receipt::class, Payment::class);
     }
 
-    public function receipt()
+    public function receipts()
     {
-        return $this->hasOne(Receipt::class);
+        return $this->hasMany(Receipt::class);
     }
 
     public function updateTotal()

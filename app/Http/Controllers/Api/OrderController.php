@@ -43,12 +43,12 @@ class OrderController extends Controller
             'pickup_address' => 'nullable|string|max:255',
             'delivery_address' => 'nullable|string|max:255',
             'recovery_mode' => 'required|in:ON_SITE,DELIVERY',
-            'status' => 'nullable|string|max:255',
             'delivery_fee' => 'nullable|integer|min:0',
             'total' => 'nullable|integer|min:0',
         ]);
 
         $validated['customer_id'] = $user->id;
+        $validated['status'] = 'PENDING';
 
         $order = Order::create($validated);
 

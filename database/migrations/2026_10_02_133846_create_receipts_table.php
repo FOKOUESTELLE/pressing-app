@@ -17,9 +17,10 @@ return new class extends Migration
             $table->dateTime('issued_at');
             $table->unsignedInteger('amount');
 
-            $table->foreignId('order_id')
-                ->constrained('orders')
-                ->restrictOnDelete();
+            $table->foreignId('payment_id')
+                    ->unique()
+                    ->constrained('payments')
+                    ->restrictOnDelete();
 
             $table->timestamps();
             $table->softDeletes();

@@ -31,9 +31,11 @@ Route::apiResource('order-items', OrderItemController::class)
      ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);
 
 Route::apiResource('payments', PaymentController::class)
+     ->only(['index', 'show', 'store'])
      ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 
 Route::apiResource('receipts', ReceiptController::class)
+     ->only(['index', 'show'])
      ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);  
 
 // Consulter les missions
