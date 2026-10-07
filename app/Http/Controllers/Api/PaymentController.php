@@ -28,28 +28,43 @@ class PaymentController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-        'amount' => 'required|integer|min:1',
-        'payment_date' => 'required|date',
-        'payment_method' => 'required|in:CASH,MOBILE_MONEY,CARD',
-        'status' => 'nullable|string|max:255',
-        'order_id' => 'required|exists:orders,id',
-    ]);
+            'amount' => 'required|integer|min:1',
+            'payment_date' => 'required|date',
+            'payment_method' => 'required|in:CASH,MOBILE_MONEY,CARD',
+            'status' => 'nullable|string|max:255',
+            'order_id' => 'required|exists:orders,id',
+        ]);
 
-    $payment = Payment::create($validated);
+        $order = Order::findOrFail($validated['order_id']);
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Paiement enregistré avec succès.',
-        'data' => $payment,
-    ], 201);
+        $alreadyPaid = Payment::where('order_id', $order->id)
+            ->sum('amount');
+
+        $remainingAmount = $order->total - $alreadyPaid;
+
+        if ($validated['amount'] > $remainingAmount) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Le montant du paiement dépasse le montant restant à payer.',
+                'remaining_amount' => $remainingAmount,
+            ], 422);
+        }
+
+        $payment = Payment::create($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Paiement enregistré avec succès.',
+            'data' => $payment,
+        ], 201);
     }
 
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(Payment $payment)
     {
-        $payment = Payment::with('order')->findOrFail($id);
+        $payment->load('order');
 
         return response()->json([
             'success' => true,
@@ -62,13 +77,29 @@ class PaymentController extends Controller
      */
     public function update(Request $request,  Payment $payment)
     {
-        
         $validated = $request->validate([
             'amount' => 'sometimes|required|integer|min:1',
             'payment_date' => 'sometimes|required|date',
             'payment_method' => 'sometimes|required|in:CASH,MOBILE_MONEY,CARD',
             'status' => 'sometimes|required|string|max:255',
         ]);
+
+        if (isset($validated['amount'])) {
+
+            $alreadyPaid = Payment::where('order_id', $payment->order_id)
+                ->where('id', '!=', $payment->id)
+                ->sum('amount');
+
+            $remainingAmount = $payment->order->total - $alreadyPaid;
+
+            if ($validated['amount'] > $remainingAmount) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Le montant du paiement dépasse le montant restant à payer.',
+                    'remaining_amount' => $remainingAmount,
+                ], 422);
+            }
+        }
 
         $payment->update($validated);
 

@@ -12,9 +12,19 @@ class OrderItemController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $orderItems = OrderItem::with(['order', 'category'])->get();
+        $user = $request->user();
+
+        if ($user->role === 'CLIENT') {
+            $orderItems = OrderItem::with(['order', 'category'])
+                ->whereHas('order', function ($query) use ($user) {
+                    $query->where('customer_id', $user->id);
+                })
+                ->get();
+        } else {
+            $orderItems = OrderItem::with(['order', 'category'])->get();
+        }
 
         return response()->json([
             'success' => true,
@@ -27,6 +37,8 @@ class OrderItemController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+
         $validated = $request->validate([
             'quantity' => 'required|integer|min:1',
             'description' => 'required|string',
@@ -34,12 +46,24 @@ class OrderItemController extends Controller
             'category_id' => 'required|exists:categories,id',
         ]);
 
+        $order = \App\Models\Order::findOrFail($validated['order_id']);
+
+        if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas autorisé à ajouter un article à cette commande.',
+            ], 403);
+        }
+
         $category = Category::findOrFail($validated['category_id']);
 
         $validated['unit_price'] = $category->price;
-        $validated['subtotal'] = $validated['quantity'] * $validated['unit_price'];
+
+        $validated['subtotal'] =
+            $validated['quantity'] * $validated['unit_price'];
 
         $orderItem = OrderItem::create($validated);
+
         $orderItem->order->updateTotal();
 
         return response()->json([
@@ -52,8 +76,20 @@ class OrderItemController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(OrderItem $orderItem)
+    public function show(Request $request, OrderItem $orderItem)
     {
+        $user = $request->user();
+
+        if (
+            $user->role === 'CLIENT' &&
+            $orderItem->order->customer_id !== $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas autorisé à consulter cet article.',
+            ], 403);
+        }
+
         $orderItem->load(['order', 'category']);
 
         return response()->json([
@@ -67,6 +103,18 @@ class OrderItemController extends Controller
      */
     public function update(Request $request, OrderItem $orderItem)
     {
+        $user = $request->user();
+
+        if (
+            $user->role === 'CLIENT' &&
+            $orderItem->order->customer_id !== $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas autorisé à modifier cet article.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'quantity' => 'sometimes|required|integer|min:1',
             'description' => 'sometimes|required|string',
@@ -75,10 +123,14 @@ class OrderItemController extends Controller
 
         if (isset($validated['category_id'])) {
             $category = Category::findOrFail($validated['category_id']);
+
             $validated['unit_price'] = $category->price;
         }
 
-        if (isset($validated['quantity']) || isset($validated['unit_price'])) {
+        if (
+            isset($validated['quantity']) ||
+            isset($validated['unit_price'])
+        ) {
             $quantity = $validated['quantity'] ?? $orderItem->quantity;
             $unitPrice = $validated['unit_price'] ?? $orderItem->unit_price;
 
@@ -86,6 +138,7 @@ class OrderItemController extends Controller
         }
 
         $orderItem->update($validated);
+
         $orderItem->order->updateTotal();
 
         return response()->json([
@@ -98,10 +151,25 @@ class OrderItemController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(OrderItem $orderItem)
+    public function destroy(Request $request, OrderItem $orderItem)
     {
+        $user = $request->user();
+
+        if (
+            $user->role === 'CLIENT' &&
+            $orderItem->order->customer_id !== $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas autorisé à supprimer cet article.',
+            ], 403);
+        }
+
+        $order = $orderItem->order;
+
         $orderItem->delete();
-        $orderItem->order->updateTotal();
+
+        $order->updateTotal();
 
         return response()->json([
             'success' => true,

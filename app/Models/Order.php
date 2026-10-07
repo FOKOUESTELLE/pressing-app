@@ -55,7 +55,10 @@ class Order extends Model
 
     public function updateTotal()
     {
-        $this->total = $this->orderItems()->sum('subtotal');
+        $itemsTotal = $this->orderItems()->sum('subtotal');
+
+        $this->total = $itemsTotal + $this->delivery_fee;
+
         $this->save();
     }
 }
