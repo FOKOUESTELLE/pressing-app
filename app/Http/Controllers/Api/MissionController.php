@@ -4,58 +4,83 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Mission;
-use App\Models\User;
+use App\Models\Order;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class MissionController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    private const STATUSES = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+
+    // statut actuel => statuts autorisés ensuite
+    private const TRANSITIONS = [
+        'PENDING'     => ['IN_PROGRESS', 'CANCELLED'],
+        'IN_PROGRESS' => ['COMPLETED', 'CANCELLED'],
+        'COMPLETED'   => [],
+        'CANCELLED'   => [],
+    ];
+
+    private function coursierRule()
+    {
+        return Rule::exists('users', 'id')->where('role', 'COURSIER')->whereNull('deleted_at');
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
 
+        $query = Mission::with(['order', 'coursier:id,name,phone'])->latest();
+
         if ($user->role === 'COURSIER') {
-            $missions = Mission::with(['order', 'coursier'])
-                ->where('coursier_id', $user->id)
-                ->get();
-        } else {
-            $missions = Mission::with(['order', 'coursier'])->get();
+            $query->where('coursier_id', $user->id);
         }
 
         return response()->json([
             'success' => true,
-            'data' => $missions,
+            'data' => $query->paginate(20),
         ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'type' => 'required|in:PICKUP,DELIVERY',
-            'status' => 'nullable|string|max:255',
-            'assigned_at' => 'nullable|date',
-            'completed_at' => 'nullable|date',
-            'address' => 'required|string|max:255',
-            'order_id' => 'required|exists:orders,id',
-            'coursier_id' => [
-                'required',
-                'exists:users,id',
-                function ($attribute, $value, $fail) {
-                    $user = User::find($value);
-
-                    if ($user && $user->role !== 'COURSIER') {
-                        $fail('L’utilisateur sélectionné doit avoir le rôle COURSIER.');
-                    }
-                },
-            ],
+            'type'        => 'required|in:PICKUP,DELIVERY',
+            'address'     => 'required|string|max:255',
+            'order_id'    => 'required|exists:orders,id',
+            'coursier_id' => ['required', $this->coursierRule()],
         ]);
 
-        $mission = Mission::create($validated);
+        $order = Order::findOrFail($validated['order_id']);
+
+        if (in_array($order->status, ['DELIVERED', 'CANCELLED'])) {
+            throw ValidationException::withMessages([
+                'order_id' => 'Cette commande est terminée ou annulée.',
+            ]);
+        }
+
+        if ($validated['type'] === 'DELIVERY' && $order->recovery_mode !== 'DELIVERY') {
+            throw ValidationException::withMessages([
+                'type' => 'Cette commande n\'est pas en mode livraison.',
+            ]);
+        }
+
+        $alreadyActive = Mission::where('order_id', $order->id)
+            ->where('type', $validated['type'])
+            ->whereIn('status', ['PENDING', 'IN_PROGRESS'])
+            ->exists();
+
+        if ($alreadyActive) {
+            throw ValidationException::withMessages([
+                'type' => 'Une mission de ce type est déjà en cours pour cette commande.',
+            ]);
+        }
+
+        $mission = new Mission($validated);
+        $mission->status      = 'PENDING';
+        $mission->assigned_at = now();
+        $mission->save();
 
         return response()->json([
             'success' => true,
@@ -64,24 +89,18 @@ class MissionController extends Controller
         ], 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Request $request, Mission $mission)
     {
         $user = $request->user();
 
-        if (
-            $user->role === 'COURSIER' &&
-            $mission->coursier_id !== $user->id
-        ) {
+        if ($user->role === 'COURSIER' && $mission->coursier_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à consulter cette mission.',
             ], 403);
         }
 
-        $mission->load(['order', 'coursier']);
+        $mission->load(['order', 'coursier:id,name,phone']);
 
         return response()->json([
             'success' => true,
@@ -89,95 +108,105 @@ class MissionController extends Controller
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, Mission $mission)
     {
-        $user = $request->user();
+        $user       = $request->user();
+        $isCoursier = $user->role === 'COURSIER';
 
-        if (
-            $user->role === 'COURSIER' &&
-            $mission->coursier_id !== $user->id
-        ) {
+        if ($isCoursier && $mission->coursier_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à modifier cette mission.',
             ], 403);
         }
 
-        $validated = $request->validate([
-            'type' => 'sometimes|required|in:PICKUP,DELIVERY',
-            'status' => 'sometimes|required|string|max:255',
-            'assigned_at' => 'sometimes|nullable|date',
-            'completed_at' => 'sometimes|nullable|date',
-            'address' => 'sometimes|required|string|max:255',
-            'order_id' => 'sometimes|required|exists:orders,id',
-            'coursier_id' => [
-                'sometimes',
-                'required',
-                'exists:users,id',
-                function ($attribute, $value, $fail) {
-                    $user = User::find($value);
-
-                    if ($user && $user->role !== 'COURSIER') {
-                        $fail('L’utilisateur sélectionné doit avoir le rôle COURSIER.');
-                    }
-                },
-            ],
-        ]);
-
-        /*
-         * Un coursier ne peut pas transférer sa mission
-         * à un autre coursier.
-         */
-        if (
-            $user->role === 'COURSIER' &&
-            isset($validated['coursier_id']) &&
-            $validated['coursier_id'] != $user->id
-        ) {
+        if (empty(self::TRANSITIONS[$mission->status])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Un coursier ne peut pas attribuer sa mission à un autre coursier.',
-            ], 403);
+                'message' => 'Cette mission est terminée ou annulée et ne peut plus être modifiée.',
+            ], 409);
         }
-        if (
-            isset($validated['status']) &&
-            $validated['status'] === 'COMPLETED'
-        ){
-            $validated['completed_at'] = now();
-         }
 
-        $mission->update($validated);
+        // Le coursier ne peut modifier que le statut ; tout autre champ envoyé est ignoré
+        $rules = ['status' => ['sometimes', Rule::in(self::STATUSES)]];
 
-        if (
-            $mission->type === 'DELIVERY' &&
-            $mission->status === 'COMPLETED'
-        ) {
-            $mission->order->update([
-                'status' => 'DELIVERED',
-            ]);
+        if (! $isCoursier) {
+            $rules['address']     = 'sometimes|string|max:255';
+            $rules['coursier_id'] = ['sometimes', $this->coursierRule()];
         }
+
+        $validated = $request->validate($rules);
+        $newStatus = $validated['status'] ?? null;
+
+        if ($newStatus !== null && $newStatus !== $mission->status) {
+            $allowed = self::TRANSITIONS[$mission->status];
+
+            if ($isCoursier) {
+                $allowed = array_intersect($allowed, ['IN_PROGRESS', 'COMPLETED']);
+            }
+
+            if (! in_array($newStatus, $allowed)) {
+                throw ValidationException::withMessages([
+                    'status' => 'Ce changement de statut n\'est pas autorisé.',
+                ]);
+            }
+        }
+
+        DB::transaction(function () use ($mission, $validated, $newStatus) {
+            if (isset($validated['address'])) {
+                $mission->address = $validated['address'];
+            }
+            if (isset($validated['coursier_id'])) {
+                $mission->coursier_id = $validated['coursier_id'];
+            }
+
+            if ($newStatus !== null && $newStatus !== $mission->status) {
+                $mission->status = $newStatus;
+
+                if ($newStatus === 'COMPLETED') {
+                    $mission->completed_at = now();
+
+                    $order = Order::whereKey($mission->order_id)->lockForUpdate()->firstOrFail();
+
+                    if ($mission->type === 'DELIVERY') {
+                        if ($order->status !== 'READY') {
+                            throw ValidationException::withMessages([
+                                'status' => 'La commande n\'est pas prête : la livraison ne peut pas être terminée.',
+                            ]);
+                        }
+                        $order->status = 'DELIVERED';
+                        $order->save();
+                    } elseif ($order->status === 'PENDING') {
+                        $order->status = 'PICKED_UP';
+                        $order->save();
+                    }
+                }
+            }
+
+            $mission->save();
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Mission modifiée avec succès.',
-            'data' => $mission,
+            'data' => $mission->fresh(),
         ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Request $request, Mission $mission)
     {
-        $user = $request->user();
-
-        if ($user->role === 'COURSIER') {
+        if ($request->user()->role === 'COURSIER') {
             return response()->json([
                 'success' => false,
                 'message' => 'Les coursiers ne sont pas autorisés à supprimer une mission.',
             ], 403);
+        }
+
+        if ($mission->status !== 'PENDING') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seule une mission non démarrée peut être supprimée ; annulez-la plutôt.',
+            ], 409);
         }
 
         $mission->delete();

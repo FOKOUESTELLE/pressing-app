@@ -12,18 +12,15 @@ class Mission extends Model
 
     protected $fillable = [
         'type',
-        'status',
-        'assigned_at',
-        'completed_at',
         'address',
         'order_id',
         'coursier_id',
     ];
 
-    protected $casts = [
-         'assigned_at' => 'datetime',
-        'completed_at' => 'datetime',
-    ];
+    // protected $casts = [
+    //      'assigned_at' => 'datetime',
+    //     'completed_at' => 'datetime',
+    // ];
 
     public function order()
     {

@@ -15,7 +15,7 @@ class RoleMiddleware
      */
     public function handle(Request $request, Closure $next, ...$roles): Response
     {
-        // Vérifie d'abord que l'utilisateur est connecté
+
         if (!$request->user()) {
             return response()->json([
                 'success' => false,
@@ -23,7 +23,6 @@ class RoleMiddleware
             ], 401);
         }
 
-        // Vérifie que son rôle fait partie des rôles autorisés
         if (!in_array($request->user()->role, $roles)) {
             return response()->json([
                 'success' => false,

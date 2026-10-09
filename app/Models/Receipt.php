@@ -11,7 +11,7 @@ class Receipt extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'order_id',
+        'payment_id',
         'receipt_number',
         'amount',
         'issued_at',

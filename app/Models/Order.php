@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 
 class Order extends Model
@@ -11,22 +12,17 @@ class Order extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'order_number',
-        'order_date',
         'pickup_address',
         'delivery_address',
         'recovery_mode',
         'status',
-        'delivery_fee',
-        'total',
-        'customer_id',
     ];
 
-    protected $casts = [
-        'order_date' => 'datetime',
-        'delivery_fee' => 'integer',
-        'total' => 'integer',
-    ];
+    // protected $casts = [
+    //     'order_date' => 'datetime',
+    //     'delivery_fee' => 'integer',
+    //     'total' => 'integer',
+    // ];
 
     public function customer()
     {
@@ -40,25 +36,51 @@ class Order extends Model
     
     public function payments()
     {
-        return $this->hasMany(Payment::class);
+       return $this->hasMany(Payment::class);
     }
 
     public function missions()
     {
-        return $this->hasManyThrough(Receipt::class, Payment::class);
+         return $this->hasMany(Mission::class);
     }
 
     public function receipts()
     {
-        return $this->hasMany(Receipt::class);
+        return $this->hasManyThrough(Receipt::class, Payment::class);
     }
 
     public function updateTotal()
     {
-        $itemsTotal = $this->orderItems()->sum('subtotal');
+        $this->delivery_fee = $this->recovery_mode === 'DELIVERY'
+            ? config('pressing.delivery_fee')
+            : 0;
 
-        $this->total = $itemsTotal + $this->delivery_fee;
+        $this->total = (int) $this->orderItems()->sum('subtotal') + $this->delivery_fee;
 
         $this->save();
+    }
+
+    public static function nextOrderNumber(): string
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('nextOrderNumber() doit être appelée dans une transaction.');
+        }
+
+        $year = now()->year;
+
+        // Crée la ligne de l'année si elle n'existe pas encore
+        DB::table('order_counters')->insertOrIgnore(['year' => $year, 'last_number' => 0]);
+
+        // Verrouille la ligne : un autre client attend la fin de cette transaction
+        $last = DB::table('order_counters')
+            ->where('year', $year)
+            ->lockForUpdate()
+            ->value('last_number');
+
+        $next = $last + 1;
+
+        DB::table('order_counters')->where('year', $year)->update(['last_number' => $next]);
+
+        return sprintf('CMD-%s-%06d', now()->format('Ymd'), $next);
     }
 }

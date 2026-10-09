@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Order;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PaymentController extends Controller
 {
@@ -14,7 +16,9 @@ class PaymentController extends Controller
      */
     public function index()
     {
-        $payments = Payment::with('order')->get();
+        $payments = Payment::with(['order', 'receipt'])
+            ->latest('payment_date')
+            ->paginate(20);
 
         return response()->json([
             'success' => true,
@@ -29,37 +33,66 @@ class PaymentController extends Controller
     {
 
         $validated = $request->validate([
-            'amount' => 'required|integer|min:1',
-            'payment_date' => 'required|date',
+            'amount'         => 'required|integer|min:1',
             'payment_method' => 'required|in:CASH,MOBILE_MONEY,CARD',
-            'order_id' => 'required|exists:orders,id',
+            'order_id'       => 'required|exists:orders,id',
         ]);
 
-        $order = Order::findOrFail($validated['order_id']);
+        $payment = DB::transaction(function () use ($validated) {
+            // Verrou : deux paiements simultanés sur la même commande
+            // sont traités l'un après l'autre, jamais en parallèle.
+            $order = Order::whereKey($validated['order_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $alreadyPaid = Payment::where('order_id', $order->id)
-            ->sum('amount');
+            if ($order->status === 'CANCELLED') {
+                throw ValidationException::withMessages([
+                    'order_id' => 'Cette commande est annulée.',
+                ]);
+            }
 
-        $remainingAmount = $order->total - $alreadyPaid;
+            if ($order->total <= 0) {
+                throw ValidationException::withMessages([
+                    'order_id' => 'Cette commande n\'a aucun montant à payer.',
+                ]);
+            }
 
-        if ($validated['amount'] > $remainingAmount) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Le montant du paiement dépasse le montant restant à payer.',
-                'remaining_amount' => $remainingAmount,
-            ], 422);
-        }
+            $alreadyPaid = (int) $order->payments()->sum('amount');
+            $remaining   = $order->total - $alreadyPaid;
 
-        $validated['status'] = ($validated['amount'] == $remainingAmount)
-            ? 'PAID'
-            : 'PARTIAL';
+            if ($remaining <= 0) {
+                throw ValidationException::withMessages([
+                    'order_id' => 'Cette commande est déjà entièrement payée.',
+                ]);
+            }
 
-        $payment = Payment::create($validated);
+            if ($validated['amount'] > $remaining) {
+                throw ValidationException::withMessages([
+                    'amount' => "Le montant dépasse le reste à payer ($remaining FCFA).",
+                ]);
+            }
+
+            $payment = $order->payments()->create([
+                'amount'         => $validated['amount'],
+                'payment_method' => $validated['payment_method'],
+                'payment_date'   => now(),
+                'status'         => $validated['amount'] === $remaining ? 'PAID' : 'PARTIAL',
+            ]);
+
+            // Un paiement = un reçu, créé automatiquement
+            $payment->receipt()->create([
+                'receipt_number' => 'REC-' . now()->format('Ymd') . '-' . str_pad($payment->id, 6, '0', STR_PAD_LEFT),
+                'issued_at'      => now(),
+                'amount'         => $payment->amount,
+            ]);
+
+            return $payment;
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Paiement enregistré avec succès.',
-            'data' => $payment,
+            'data'    => $payment->load(['order', 'receipt']),
         ], 201);
     }
 
@@ -68,7 +101,7 @@ class PaymentController extends Controller
      */
     public function show(Payment $payment)
     {
-        $payment->load('order');
+        $payment->load(['order', 'receipt']);
 
         return response()->json([
             'success' => true,
@@ -76,54 +109,4 @@ class PaymentController extends Controller
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request,  Payment $payment)
-    {
-        $validated = $request->validate([
-            'amount' => 'sometimes|required|integer|min:1',
-            'payment_date' => 'sometimes|required|date',
-            'payment_method' => 'sometimes|required|in:CASH,MOBILE_MONEY,CARD',
-            'status' => 'sometimes|required|string|max:255',
-        ]);
-
-        if (isset($validated['amount'])) {
-
-            $alreadyPaid = Payment::where('order_id', $payment->order_id)
-                ->where('id', '!=', $payment->id)
-                ->sum('amount');
-
-            $remainingAmount = $payment->order->total - $alreadyPaid;
-
-            if ($validated['amount'] > $remainingAmount) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Le montant du paiement dépasse le montant restant à payer.',
-                    'remaining_amount' => $remainingAmount,
-                ], 422);
-            }
-        }
-
-        $payment->update($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Paiement modifié avec succès.',
-            'data' => $payment,
-        ]);
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Payment $payment)
-    {
-        $payment->delete();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Paiement supprimé avec succès.',
-        ]);
-    }
 }

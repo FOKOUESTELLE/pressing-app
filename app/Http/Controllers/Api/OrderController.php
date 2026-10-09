@@ -4,65 +4,58 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\Category;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    private const STATUSES = ['PENDING', 'PICKED_UP', 'IN_PROGRESS', 'READY', 'DELIVERED', 'CANCELLED'];
+
     public function index(Request $request)
     {
         $user = $request->user();
 
+        $query = Order::with(['customer', 'orderItems.category'])->latest('order_date');
+
         if ($user->role === 'CLIENT') {
-            $orders = Order::with(['customer', 'orderItems.category'])
-                ->where('customer_id', $user->id)
-                ->get();
-        } else {
-            $orders = Order::with(['customer', 'orderItems.category'])->get();
+            $query->where('customer_id', $user->id);
         }
 
         return response()->json([
             'success' => true,
-            'data' => $orders,
+            'data' => $query->paginate(20),
         ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-         $user = $request->user();
-
         $validated = $request->validate([
-            'order_number' => 'required|string|max:255|unique:orders,order_number',
-            'order_date' => 'required|date',
-            'pickup_address' => 'nullable|string|max:255',
-            'delivery_address' => 'nullable|string|max:255',
-            'recovery_mode' => 'required|in:ON_SITE,DELIVERY',
-            'delivery_fee' => 'nullable|integer|min:0',
-            'total' => 'nullable|integer|min:0',
+            'recovery_mode'    => 'required|in:ON_SITE,DELIVERY',
+            'pickup_address'   => 'nullable|string|max:255',
+            'delivery_address' => 'required_if:recovery_mode,DELIVERY|nullable|string|max:255',
         ]);
+        $order = DB::transaction(function () use ($validated, $request) {
+        $order = new Order($validated);
+        $order->customer_id  = $request->user()->id;
+        $order->order_number = Order::nextOrderNumber();
+        $order->order_date   = now();
+        $order->status       = 'PENDING';
+        $order->save();
 
-        $validated['customer_id'] = $user->id;
-        $validated['status'] = 'PENDING';
+        $order->updateTotal();
 
-        $order = Order::create($validated);
+        return $order;
+        });
 
         return response()->json([
             'success' => true,
             'message' => 'Commande créée avec succès.',
             'data' => $order,
         ], 201);
-
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Request $request, Order $order)
     {
         $user = $request->user();
@@ -75,9 +68,11 @@ class OrderController extends Controller
         }
 
         $order->load([
-            'customer',
-            'orderItems.category',
-        ]);
+            'customer', 
+            'orderItems.category', 
+            'payments.receipt',
+            'missions.coursier',
+            ]);
 
         return response()->json([
             'success' => true,
@@ -85,33 +80,47 @@ class OrderController extends Controller
         ]);
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request,  Order $order)
+    public function update(Request $request, Order $order)
     {
-        $user = $request->user();
+        $user    = $request->user();
+        $isStaff = in_array($user->role, ['RESPONSABLE', 'ADMIN']);
 
-        if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
+        if (! $isStaff && $order->customer_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à modifier cette commande.',
             ], 403);
         }
 
-        $validated = $request->validate([
-            'order_number' => 'sometimes|required|string|max:255|unique:orders,order_number,' . $order->id,
-            'order_date' => 'sometimes|required|date',
-            'pickup_address' => 'nullable|string|max:255',
-            'delivery_address' => 'nullable|string|max:255',
-            'recovery_mode' => 'sometimes|required|in:ON_SITE,DELIVERY',
-            'status' => 'sometimes|required|string|max:255',
-            'delivery_fee' => 'sometimes|required|integer|min:0',
-            'total' => 'sometimes|required|integer|min:0',
-        ]);
+        // Un client ne modifie sa commande que tant qu'elle est en attente et non payée
+        if (! $isStaff && ($order->status !== 'PENDING' || $order->payments()->exists())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette commande ne peut plus être modifiée.',
+            ], 403);
+        }
 
-        $order->update($validated);
-        $order->updateTotal();
+        $rules = [
+            'recovery_mode'    => 'sometimes|in:ON_SITE,DELIVERY',
+            'pickup_address'   => 'sometimes|nullable|string|max:255',
+            'delivery_address' => 'sometimes|nullable|string|max:255',
+        ];
+
+        // Seul le personnel peut changer le statut
+        if ($isStaff) {
+            $rules['status'] = ['sometimes', Rule::in(self::STATUSES)];
+        }
+
+        $order->fill($request->validate($rules));
+
+        if ($order->recovery_mode === 'DELIVERY' && empty($order->delivery_address)) {
+            throw ValidationException::withMessages([
+                'delivery_address' => 'Une adresse de livraison est obligatoire en mode DELIVERY.',
+            ]);
+        }
+
+        $order->save();
+        $order->updateTotal(); // recalcule les frais si le mode a changé
 
         return response()->json([
             'success' => true,
@@ -120,18 +129,23 @@ class OrderController extends Controller
         ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Request $request, Order $order)
     {
-        $user = $request->user();
+        $user    = $request->user();
+        $isStaff = in_array($user->role, ['RESPONSABLE', 'ADMIN']);
 
-        if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
+        if (! $isStaff && $order->customer_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à supprimer cette commande.',
             ], 403);
+        }
+
+        if ($order->status !== 'PENDING' || $order->payments()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seule une commande en attente et sans paiement peut être supprimée. Annulez-la plutôt (statut CANCELLED).',
+            ], 409);
         }
 
         $order->delete();

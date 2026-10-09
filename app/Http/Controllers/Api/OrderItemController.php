@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\OrderItem;
 use App\Models\Category;
+use App\Models\Order;
 use Illuminate\Http\Request;
 
 class OrderItemController extends Controller
@@ -40,19 +41,24 @@ class OrderItemController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
-            'quantity' => 'required|integer|min:1',
-            'description' => 'required|string',
+            'quantity' => 'required|integer|min:1|max:100',
+            'description' => 'required|string|max:500',
             'order_id' => 'required|exists:orders,id',
             'category_id' => 'required|exists:categories,id',
         ]);
 
-        $order = \App\Models\Order::findOrFail($validated['order_id']);
+        $order = Order::findOrFail($validated['order_id']);
 
         if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à ajouter un article à cette commande.',
             ], 403);
+        }
+
+        if (! $this->canEditItems($order, $user)) {
+
+            return $this->locked();
         }
 
         $category = Category::findOrFail($validated['category_id']);
@@ -115,9 +121,14 @@ class OrderItemController extends Controller
             ], 403);
         }
 
+        if (! $this->canEditItems($orderItem->order, $user)) {
+
+            return $this->locked();
+        }
+
         $validated = $request->validate([
-            'quantity' => 'sometimes|required|integer|min:1',
-            'description' => 'sometimes|required|string',
+            'quantity' => 'sometimes|required|integer|min:1|max:100',
+            'description' => 'sometimes|required|string|max:500',
             'category_id' => 'sometimes|required|exists:categories,id',
         ]);
 
@@ -165,6 +176,11 @@ class OrderItemController extends Controller
             ], 403);
         }
 
+        if (! $this->canEditItems($orderItem->order, $user)) {
+
+            return $this->locked();
+        }
+
         $order = $orderItem->order;
 
         $orderItem->delete();
@@ -175,5 +191,26 @@ class OrderItemController extends Controller
             'success' => true,
             'message' => 'Article supprimé de la commande avec succès.',
         ]);
+    }
+
+    private function canEditItems(Order $order, $user): bool
+    {
+        if ($order->payments()->exists()) {
+            return false;
+        }
+
+        if ($user->role === 'CLIENT') {
+            return $order->status === 'PENDING';
+        }
+
+        return ! in_array($order->status, ['DELIVERED', 'CANCELLED']);
+    }
+
+    private function locked()
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'Les articles de cette commande ne peuvent plus être modifiés.',
+        ], 409);
     }
 }
