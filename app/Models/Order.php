@@ -18,6 +18,13 @@ class Order extends Model
         'status',
     ];
 
+    public const RECAP_STATUSES = [
+        'DRAFT',
+        'AWAITING_CONFIRMATION',
+        'CORRECTION_REQUESTED',
+        'CONFIRMED',
+    ];
+
     // protected $casts = [
     //     'order_date' => 'datetime',
     //     'delivery_fee' => 'integer',
@@ -27,6 +34,11 @@ class Order extends Model
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id');
+    }
+
+    public function manager()
+    {
+        return $this->belongsTo(User::class, 'manager_id');
     }
 
      public function orderItems()
@@ -82,5 +94,10 @@ class Order extends Model
         DB::table('order_counters')->where('year', $year)->update(['last_number' => $next]);
 
         return sprintf('CMD-%s-%06d', now()->format('Ymd'), $next);
+    }
+
+    public function isRecapAwaitingConfirmation(): bool
+    {
+        return $this->recap_status === 'AWAITING_CONFIRMATION';
     }
 }

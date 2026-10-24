@@ -26,7 +26,22 @@ Route::apiResource('categories', CategoryController::class)
 
 Route::apiResource('orders', OrderController::class)
      ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);
+     
+Route::patch('/orders/{order}/take-charge', [OrderController::class, 'takeCharge'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 
+Route::post('/orders/{order}/send-recap', [OrderController::class, 'sendRecap'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+
+Route::post('/orders/{order}/confirm-recap', [OrderController::class, 'confirmRecap'])
+    ->middleware(['auth:sanctum', 'role:CLIENT']);
+
+Route::post('/orders/{order}/request-recap-correction', [OrderController::class, 'requestRecapCorrection'])
+    ->middleware(['auth:sanctum', 'role:CLIENT']);
+
+Route::post('/orders/{order}/resend-recap', [OrderController::class, 'resendRecap'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE']);
+    
 Route::apiResource('order-items', OrderItemController::class)
      ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);
 
@@ -45,18 +60,16 @@ Route::get('/missions', [MissionController::class, 'index'])
 Route::get('/missions/{mission}', [MissionController::class, 'show'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,COURSIER,ADMIN']);
 
-// Modifier une mission
 Route::put('/missions/{mission}', [MissionController::class, 'update'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,COURSIER,ADMIN']);
 
 Route::patch('/missions/{mission}', [MissionController::class, 'update'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,COURSIER,ADMIN']);
 
-// Créer une mission : uniquement RESPONSABLE et ADMIN
 Route::post('/missions', [MissionController::class, 'store'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 
-// Supprimer une mission : uniquement RESPONSABLE et ADMIN
+
 Route::delete('/missions/{mission}', [MissionController::class, 'destroy'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 

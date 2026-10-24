@@ -193,24 +193,38 @@ class OrderItemController extends Controller
         ]);
     }
 
+
     private function canEditItems(Order $order, $user): bool
     {
         if ($order->payments()->exists()) {
             return false;
         }
 
-        if ($user->role === 'CLIENT') {
-            return $order->status === 'PENDING';
+        if (in_array($order->status, ['DELIVERED', 'CANCELLED'])) {
+            return false;
         }
 
-        return ! in_array($order->status, ['DELIVERED', 'CANCELLED']);
+        if (! in_array($order->recap_status, [
+            'DRAFT',
+            'CORRECTION_REQUESTED',
+        ])) {
+            return false;
+        }
+
+        return $user->role === 'RESPONSABLE'
+            && $order->manager_id === $user->id;
     }
 
+/**
+ * Refuse la modification d'un article lorsque la commande est verrouillée.
+*/
     private function locked()
     {
         return response()->json([
             'success' => false,
             'message' => 'Les articles de cette commande ne peuvent plus être modifiés.',
-        ], 409);
+        ], 403);
     }
+
+
 }
