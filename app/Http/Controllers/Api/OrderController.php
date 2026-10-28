@@ -17,11 +17,13 @@ class OrderController extends Controller
     {
         $user = $request->user();
 
-        $query = Order::with(['customer', 'orderItems.category'])->latest('order_date');
+        $query = Mission::with(['order.customer:id,name,phone','coursier:id,name,phone',])->latest();
 
         if ($user->role === 'CLIENT') {
             $query->where('customer_id', $user->id);
         }
+
+    
 
         return response()->json([
             'success' => true,
