@@ -73,6 +73,6 @@ Route::post('/missions', [MissionController::class, 'store'])
 Route::delete('/missions/{mission}', [MissionController::class, 'destroy'])
     ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 
-Route::apiResource('users', UserController::class)->middleware(['auth:sanctum', 'admin'])
-     ->middleware(['auth:sanctum', 'admin']);
+Route::apiResource('users', UserController::class)
+     ->middleware(['auth:sanctum', 'role:ADMIN']);
 

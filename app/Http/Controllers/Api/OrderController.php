@@ -17,13 +17,15 @@ class OrderController extends Controller
     {
         $user = $request->user();
 
-        $query = Mission::with(['order.customer:id,name,phone','coursier:id,name,phone',])->latest();
+        $query = Order::with([
+            'customer:id,name,phone',
+            'manager:id,name',
+            'orderItems.category',
+        ])->latest('order_date');
 
         if ($user->role === 'CLIENT') {
             $query->where('customer_id', $user->id);
         }
-
-    
 
         return response()->json([
             'success' => true,
@@ -79,11 +81,8 @@ class OrderController extends Controller
                     'order' => 'Seule une commande en attente peut être prise en charge.',
                 ]);
             }
-
-            // Attribue automatiquement la commande au responsable connecté.
             $lockedOrder->manager_id = $request->user()->id;
 
-            // Passe automatiquement la commande au statut EN COURS.
             $lockedOrder->status = 'IN_PROGRESS';
 
             $lockedOrder->save();
@@ -307,7 +306,7 @@ class OrderController extends Controller
         }
 
         $order->save();
-        $order->updateTotal(); // recalcule les frais si le mode a changé
+        $order->updateTotal();
 
         return response()->json([
             'success' => true,
@@ -317,50 +316,21 @@ class OrderController extends Controller
     }
 
     
-    public function destroy(Request $request, Order $order)
+    public function destroy(Category $category)
     {
-        $user = $request->user();
-
-        // Seul le client propriétaire peut annuler sa commande.
-        if ($user->role !== 'CLIENT' || $order->customer_id !== $user->id) {
+        // Vérifier si la catégorie est utilisée dans une commande
+        if ($category->orderItems()->exists()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Vous n’êtes pas autorisé à annuler cette commande.',
-            ], 403);
+                'message' => 'Impossible de supprimer cette catégorie, car elle est associée à une ou plusieurs commandes.',
+            ], 422);
         }
 
-        if (! in_array($order->recap_status, ['DRAFT', 'AWAITING_CONFIRMATION', 'CORRECTION_REQUESTED'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette commande ne peut plus être annulée.',
-            ], 409);
-        }
-
-        if ($order->status === 'CANCELLED') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette commande est déjà annulée.',
-            ], 409);
-        }
-
-        // Une commande payée nécessite une procédure particulière.
-        if ($order->payments()->exists()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette commande comporte un paiement. Contactez le pressing pour son annulation.',
-            ], 409);
-        }
-
-        $order->status = 'CANCELLED';
-        $order->recap_status = 'DRAFT';
-        $order->correction_message = null;
-        $order->save();
+        $category->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Commande annulée avec succès.',
-            'data' => $order,
+            'message' => 'Catégorie supprimée avec succès.',
         ]);
     }
-
 }
