@@ -100,4 +100,28 @@ class Order extends Model
     {
         return $this->recap_status === 'AWAITING_CONFIRMATION';
     }
+
+    public function getPaymentSummaryAttribute(): array
+        {
+            $montantPaye = (int) $this->payments()->sum('amount');
+
+            $montantTotal = (int) $this->total;
+
+            $resteAPayer = max(0, $montantTotal - $montantPaye);
+
+            if ($montantPaye <= 0) {
+                $statut = 'UNPAID';
+            } elseif ($montantPaye < $montantTotal) {
+                $statut = 'PARTIAL';
+            } else {
+                $statut = 'PAID';
+            }
+
+            return [
+                'total' => $montantTotal,
+                'montant_paye' => $montantPaye,
+                'reste_a_payer' => $resteAPayer,
+                'statut' => $statut,
+            ];
+        }
 }

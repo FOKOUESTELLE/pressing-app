@@ -31,10 +31,14 @@ class MissionController extends Controller
     {
         $user = $request->user();
 
-        $query = Mission::with(['order.customer:id,name,phone','coursier:id,name,phone',])->latest();
+        $query = Mission::with([
+            'order.customer:id,name,phone',
+            'coursier:id,name,phone',
+        ])->latest();
 
-        if ($user->role === 'CLIENT') {
-            $query->where('customer_id', $user->id);
+        // Le coursier voit uniquement les missions qui lui sont attribuées
+        if ($user->role === 'COURSIER') {
+            $query->where('coursier_id', $user->id);
         }
 
         return response()->json([

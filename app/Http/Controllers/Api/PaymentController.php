@@ -14,11 +14,27 @@ class PaymentController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $payments = Payment::with(['order', 'receipt'])
-            ->latest('payment_date')
-            ->paginate(20);
+        $user = $request->user();
+
+        $query = Payment::with(['order.customer','order.payments','receipt',])->latest('payment_date');
+
+        // Un client consulte uniquement ses propres paiements
+        if ($user->role === 'CLIENT') {
+            $query->whereHas('order', function ($q) use ($user) {
+                $q->where('customer_id', $user->id);
+            });
+        }
+        $payments = $query->paginate(20);
+
+        $payments->getCollection()->transform(function ($payment) {
+            if ($payment->order) {
+                $payment->order->append('payment_summary');
+            }
+
+            return $payment;
+        });
 
         return response()->json([
             'success' => true,
@@ -99,14 +115,26 @@ class PaymentController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Payment $payment)
+    public function show(Request $request, Payment $payment)
     {
+        $user = $request->user();
+
         $payment->load(['order', 'receipt']);
+
+        // Vérifier que le paiement appartient bien au client connecté
+        if (
+            $user->role === 'CLIENT' &&
+            (int) $payment->order?->customer_id !== (int) $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas autorisé à consulter ce paiement.',
+            ], 403);
+        }
 
         return response()->json([
             'success' => true,
             'data' => $payment,
         ]);
     }
-
 }

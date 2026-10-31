@@ -47,11 +47,11 @@ Route::apiResource('order-items', OrderItemController::class)
 
 Route::apiResource('payments', PaymentController::class)
      ->only(['index', 'show', 'store'])
-     ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+     ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);
 
 Route::apiResource('receipts', ReceiptController::class)
      ->only(['index', 'show'])
-     ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);  
+     ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);  
 
 // Consulter les missions
 Route::get('/missions', [MissionController::class, 'index'])

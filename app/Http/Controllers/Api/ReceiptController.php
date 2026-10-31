@@ -12,7 +12,7 @@ class ReceiptController extends Controller
     {
         $user = $request->user();
 
-        $query = Receipt::with('payment.order')->latest('issued_at');
+        $query = Receipt::with('payment.order.customer')->latest('issued_at');
 
         // Un client ne voit que les reçus de ses propres commandes
         if ($user->role === 'CLIENT') {
