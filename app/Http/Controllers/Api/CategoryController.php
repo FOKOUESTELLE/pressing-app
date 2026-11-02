@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CategoryController extends Controller
 {
@@ -27,7 +28,12 @@ class CategoryController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('categories', 'name')->withoutTrashed(),
+            ],
             'price' => 'required|integer|min:0',
             'description' => 'nullable|string',
         ]);
@@ -58,7 +64,15 @@ class CategoryController extends Controller
     public function update(Request $request, Category $category)
     {
         $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
+            'name' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('categories', 'name')
+                    ->ignore($category->id)
+                    ->withoutTrashed(),
+            ],
             'price' => 'sometimes|required|integer|min:0',
             'description' => 'nullable|string',
         ]);
@@ -75,9 +89,17 @@ class CategoryController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Category $category)
+   public function destroy(Category $category)
     {
-         $category->delete();
+        // Vérifier si la catégorie est utilisée dans une commande
+        if ($category->orderItems()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de supprimer cette catégorie, car elle est associée à une ou plusieurs commandes.',
+            ], 422);
+        }
+
+        $category->delete();
 
         return response()->json([
             'success' => true,

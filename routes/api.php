@@ -21,6 +21,12 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
+Route::put('/user/profile', [UserController::class, 'updateProfile'])
+    ->middleware('auth:sanctum');
+
+Route::put('/user/change-password', [UserController::class, 'changePassword'])
+    ->middleware('auth:sanctum');
+
 Route::apiResource('categories', CategoryController::class)
      ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 

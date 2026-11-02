@@ -14,18 +14,31 @@ class PaymentController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request)
+public function index(Request $request)
     {
         $user = $request->user();
 
-        $query = Payment::with(['order.customer','order.payments','receipt',])->latest('payment_date');
+        $query = Payment::with([
+            'order.customer',
+            'order.payments',
+            'receipt',
+        ])->latest('payment_date');
 
-        // Un client consulte uniquement ses propres paiements
+        // Un client consulte uniquement ses propres paiements.
         if ($user->role === 'CLIENT') {
             $query->whereHas('order', function ($q) use ($user) {
                 $q->where('customer_id', $user->id);
             });
         }
+
+        // Un responsable consulte uniquement les paiements
+        // des commandes qui lui sont attribuées.
+        elseif ($user->role === 'RESPONSABLE') {
+            $query->whereHas('order', function ($q) use ($user) {
+                $q->where('manager_id', $user->id);
+            });
+        }
+
         $payments = $query->paginate(20);
 
         $payments->getCollection()->transform(function ($payment) {
@@ -45,8 +58,18 @@ class PaymentController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+
+public function store(Request $request)
     {
+        $user = $request->user();
+
+        // Seuls le RESPONSABLE et l'ADMIN peuvent enregistrer un paiement.
+        if (!in_array($user->role, ['RESPONSABLE', 'ADMIN'])) {
+            return response()->json([
+                'success' => false,
+                'message' => "Vous n'êtes pas autorisé à enregistrer un paiement.",
+            ], 403);
+        }
 
         $validated = $request->validate([
             'amount'         => 'required|integer|min:1',
@@ -54,12 +77,21 @@ class PaymentController extends Controller
             'order_id'       => 'required|exists:orders,id',
         ]);
 
-        $payment = DB::transaction(function () use ($validated) {
-            // Verrou : deux paiements simultanés sur la même commande
-            // sont traités l'un après l'autre, jamais en parallèle.
+        $payment = DB::transaction(function () use ($validated, $user) {
+
             $order = Order::whereKey($validated['order_id'])
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            // Un responsable ne peut payer que les commandes qui lui sont attribuées.
+            if (
+                $user->role === 'RESPONSABLE' &&
+                (int) $order->manager_id !== (int) $user->id
+            ) {
+                throw ValidationException::withMessages([
+                    'order_id' => "Cette commande ne vous est pas attribuée.",
+                ]);
+            }
 
             if ($order->status === 'CANCELLED') {
                 throw ValidationException::withMessages([
@@ -69,12 +101,12 @@ class PaymentController extends Controller
 
             if ($order->total <= 0) {
                 throw ValidationException::withMessages([
-                    'order_id' => 'Cette commande n\'a aucun montant à payer.',
+                    'order_id' => "Cette commande n'a aucun montant à payer.",
                 ]);
             }
 
             $alreadyPaid = (int) $order->payments()->sum('amount');
-            $remaining   = $order->total - $alreadyPaid;
+            $remaining = $order->total - $alreadyPaid;
 
             if ($remaining <= 0) {
                 throw ValidationException::withMessages([
@@ -92,14 +124,17 @@ class PaymentController extends Controller
                 'amount'         => $validated['amount'],
                 'payment_method' => $validated['payment_method'],
                 'payment_date'   => now(),
-                'status'         => $validated['amount'] === $remaining ? 'PAID' : 'PARTIAL',
+                'status'         => $validated['amount'] === $remaining
+                    ? 'PAID'
+                    : 'PARTIAL',
             ]);
 
-            // Un paiement = un reçu, créé automatiquement
+            // Création automatique du reçu.
             $payment->receipt()->create([
-                'receipt_number' => 'REC-' . now()->format('Ymd') . '-' . str_pad($payment->id, 6, '0', STR_PAD_LEFT),
-                'issued_at'      => now(),
-                'amount'         => $payment->amount,
+                'receipt_number' => 'REC-' . now()->format('Ymd') . '-' .
+                    str_pad($payment->id, 6, '0', STR_PAD_LEFT),
+                'issued_at' => now(),
+                'amount' => $payment->amount,
             ]);
 
             return $payment;
@@ -108,27 +143,37 @@ class PaymentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Paiement enregistré avec succès.',
-            'data'    => $payment->load(['order', 'receipt']),
+            'data' => $payment->load(['order', 'receipt']),
         ], 201);
     }
-
     /**
      * Display the specified resource.
      */
-    public function show(Request $request, Payment $payment)
+public function show(Request $request, Payment $payment)
     {
         $user = $request->user();
 
         $payment->load(['order', 'receipt']);
 
-        // Vérifier que le paiement appartient bien au client connecté
+        // Vérifier que le paiement appartient bien au client.
         if (
             $user->role === 'CLIENT' &&
             (int) $payment->order?->customer_id !== (int) $user->id
         ) {
             return response()->json([
                 'success' => false,
-                'message' => 'Vous n\'êtes pas autorisé à consulter ce paiement.',
+                'message' => 'Vous n’êtes pas autorisé à consulter ce paiement.',
+            ], 403);
+        }
+
+        // Vérifier que le paiement concerne une commande attribuée au responsable.
+        if (
+            $user->role === 'RESPONSABLE' &&
+            (int) $payment->order?->manager_id !== (int) $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n’êtes pas autorisé à consulter ce paiement.',
             ], 403);
         }
 

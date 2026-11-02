@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
@@ -104,6 +105,68 @@ class UserController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Utilisateur supprimé avec succès.',
+        ]);
+    }
+
+    /**
+ * Modifier le profil de l'utilisateur connecté.
+ */
+public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'email' => [
+                'sometimes',
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
+            'phone' => 'sometimes|nullable|string|max:20',
+            'address' => 'sometimes|nullable|string|max:255',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil mis à jour avec succès.',
+            'data' => $user,
+        ]);
+    }
+
+    /**
+ * Modifier le mot de passe de l'utilisateur connecté.
+ */
+public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ], [
+            'current_password.required' => 'Veuillez saisir votre mot de passe actuel.',
+            'password.required' => 'Veuillez saisir un nouveau mot de passe.',
+            'password.min' => 'Le nouveau mot de passe doit contenir au moins 8 caractères.',
+            'password.confirmed' => 'La confirmation du mot de passe ne correspond pas.',
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Votre mot de passe actuel est incorrect.',
+            ], 422);
+        }
+
+        $user->password = $request->password;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Votre mot de passe a été modifié avec succès.',
         ]);
     }
 }

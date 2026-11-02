@@ -27,7 +27,18 @@ class MissionController extends Controller
         return Rule::exists('users', 'id')->where('role', 'COURSIER')->whereNull('deleted_at');
     }
 
-    public function index(Request $request)
+    private function responsableCanAccessMission($user, Mission $mission)
+    {
+        if ($user->role !== 'RESPONSABLE') {
+            return true;
+        }
+
+        return Order::whereKey($mission->order_id)
+            ->where('manager_id', $user->id)
+            ->exists();
+    }
+
+   public function index(Request $request)
     {
         $user = $request->user();
 
@@ -36,15 +47,30 @@ class MissionController extends Controller
             'coursier:id,name,phone',
         ])->latest();
 
-        // Le coursier voit uniquement les missions qui lui sont attribuées
+        // Le coursier voit uniquement ses missions.
         if ($user->role === 'COURSIER') {
             $query->where('coursier_id', $user->id);
+        }
+
+        // Le responsable voit uniquement les missions
+        // liées à ses propres commandes.
+        elseif ($user->role === 'RESPONSABLE') {
+            $query->whereHas('order', function ($q) use ($user) {
+                $q->where('manager_id', $user->id);
+            });
         }
 
         return response()->json([
             'success' => true,
             'data' => $query->paginate(20),
         ]);
+
+        if (! $this->responsableCanAccessMission($user, $mission)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette mission ne vous est pas attribuée.',
+            ], 403);
+        }
     }
 
     public function store(Request $request)
@@ -58,6 +84,16 @@ class MissionController extends Controller
 
         $order = Order::findOrFail($validated['order_id']);
 
+        // Un responsable ne peut créer une mission
+        // que pour une commande qui lui est attribuée.
+        if (
+            $request->user()->role === 'RESPONSABLE' &&
+            (int) $order->manager_id !== (int) $request->user()->id
+        ) {
+            throw ValidationException::withMessages([
+                'order_id' => 'Cette commande ne vous est pas attribuée.',
+            ]);
+        }
         if (in_array($order->status, ['DELIVERED', 'CANCELLED'])) {
             throw ValidationException::withMessages([
                 'order_id' => 'Cette commande est terminée ou annulée.',
@@ -91,6 +127,13 @@ class MissionController extends Controller
             'message' => 'Mission créée avec succès.',
             'data' => $mission,
         ], 201);
+
+        if (! $this->responsableCanAccessMission($user, $mission)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette mission ne vous est pas attribuée.',
+            ], 403);
+}
     }
 
     public function show(Request $request, Mission $mission)
@@ -121,6 +164,13 @@ class MissionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à modifier cette mission.',
+            ], 403);
+        }
+
+        if (! $this->responsableCanAccessMission($user, $mission)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette mission ne vous est pas attribuée.',
             ], 403);
         }
 
@@ -199,6 +249,7 @@ class MissionController extends Controller
 
     public function destroy(Request $request, Mission $mission)
     {
+        $user = $request->user();
         if ($request->user()->role === 'COURSIER') {
             return response()->json([
                 'success' => false,

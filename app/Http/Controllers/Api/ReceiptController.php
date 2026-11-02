@@ -35,7 +35,7 @@ class ReceiptController extends Controller
 
         $ownerId = $receipt->payment?->order?->customer_id;
 
-        if ($user->role === 'CLIENT' && $ownerId !== $user->id) {
+        if ($user->role === 'CLIENT' && (int) $ownerId !== (int) $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à consulter ce reçu.',

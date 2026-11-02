@@ -13,7 +13,7 @@ class OrderController extends Controller
 {
     private const STATUSES = ['PENDING', 'PICKED_UP', 'IN_PROGRESS', 'READY', 'DELIVERED', 'CANCELLED'];
 
-    public function index(Request $request)
+   public function index(Request $request)
     {
         $user = $request->user();
 
@@ -21,10 +21,16 @@ class OrderController extends Controller
             'customer:id,name,phone',
             'manager:id,name',
             'orderItems.category',
+            'payments.receipt',
         ])->latest('order_date');
 
         if ($user->role === 'CLIENT') {
             $query->where('customer_id', $user->id);
+        } elseif ($user->role === 'RESPONSABLE') {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('manager_id')
+                ->orWhere('manager_id', $user->id);
+            });
         }
 
         return response()->json([
@@ -242,23 +248,40 @@ class OrderController extends Controller
         ]);
     }
 
-    public function show(Request $request, Order $order)
+   public function show(Request $request, Order $order)
     {
         $user = $request->user();
 
-        if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
+        // Vérifier les droits du client
+        if (
+            $user->role === 'CLIENT' &&
+            (int) $order->customer_id !== (int) $user->id
+        ) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à consulter cette commande.',
             ], 403);
         }
 
+        // Vérifier les droits du responsable
+        if (
+            $user->role === 'RESPONSABLE' &&
+            $order->manager_id !== null &&
+            (int) $order->manager_id !== (int) $user->id
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette commande est attribuée à un autre responsable.',
+            ], 403);
+        }
+
         $order->load([
-            'customer', 
-            'orderItems.category', 
+            'customer',
+            'manager:id,name',
+            'orderItems.category',
             'payments.receipt',
             'missions.coursier',
-            ]);
+        ]);
 
         return response()->json([
             'success' => true,
@@ -268,22 +291,32 @@ class OrderController extends Controller
 
     public function update(Request $request, Order $order)
     {
-        $user    = $request->user();
+        $user = $request->user();
+
         $isStaff = in_array($user->role, ['RESPONSABLE', 'ADMIN']);
 
-        if (! $isStaff && $order->customer_id !== $user->id) {
+        // Vérifier que le client est bien propriétaire de la commande
+        if ($user->role === 'CLIENT' && $order->customer_id !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à modifier cette commande.',
             ], 403);
         }
 
-        // Un client ne modifie sa commande que tant qu'elle est en attente et non payée
-        if (! $isStaff && ($order->status !== 'PENDING' || $order->payments()->exists())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette commande ne peut plus être modifiée.',
-            ], 403);
+        // Un client ne peut modifier que sa propre commande,
+        // si elle est encore en attente, non attribuée et non payée.
+        if ($user->role === 'CLIENT') {
+
+            if (
+                $order->status !== 'PENDING' ||
+                $order->manager_id !== null ||
+                $order->payments()->exists()
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cette commande ne peut plus être modifiée.',
+                ], 403);
+            }
         }
 
         $rules = [
@@ -292,14 +325,19 @@ class OrderController extends Controller
             'delivery_address' => 'sometimes|nullable|string|max:255',
         ];
 
-        // Seul le personnel peut changer le statut
+        // Seul le personnel peut modifier le statut
         if ($isStaff) {
             $rules['status'] = ['sometimes', Rule::in(self::STATUSES)];
         }
 
-        $order->fill($request->validate($rules));
+        $validated = $request->validate($rules);
 
-        if ($order->recovery_mode === 'DELIVERY' && empty($order->delivery_address)) {
+        $order->fill($validated);
+
+        if (
+            $order->recovery_mode === 'DELIVERY' &&
+            empty($order->delivery_address)
+        ) {
             throw ValidationException::withMessages([
                 'delivery_address' => 'Une adresse de livraison est obligatoire en mode DELIVERY.',
             ]);
@@ -314,23 +352,46 @@ class OrderController extends Controller
             'data' => $order,
         ]);
     }
-
     
-    public function destroy(Category $category)
+    public function destroy(Request $request, Order $order)
     {
-        // Vérifier si la catégorie est utilisée dans une commande
-        if ($category->orderItems()->exists()) {
+        $user = $request->user();
+
+        // Seul le client propriétaire peut supprimer sa commande
+        if (
+            $user->role !== 'CLIENT' ||
+            $order->customer_id !== $user->id
+        ) {
             return response()->json([
                 'success' => false,
-                'message' => 'Impossible de supprimer cette catégorie, car elle est associée à une ou plusieurs commandes.',
-            ], 422);
+                'message' => 'Vous n\'êtes pas autorisé à supprimer cette commande.',
+            ], 403);
         }
 
-        $category->delete();
+        // La commande doit être encore en attente et non attribuée
+        if (
+            $order->status !== 'PENDING' ||
+            $order->manager_id !== null
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette commande ne peut plus être supprimée.',
+            ], 403);
+        }
+
+        // Vérifier qu'aucun paiement n'a été effectué
+        if ($order->payments()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette commande ne peut pas être supprimée car un paiement a déjà été effectué.',
+            ], 403);
+        }
+
+        $order->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Catégorie supprimée avec succès.',
+            'message' => 'Commande supprimée avec succès.',
         ]);
     }
 }
