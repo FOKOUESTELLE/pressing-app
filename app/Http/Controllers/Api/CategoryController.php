@@ -36,6 +36,7 @@ class CategoryController extends Controller
             ],
             'price' => 'required|integer|min:0',
             'description' => 'nullable|string',
+            'actif' => 'sometimes|boolean',
         ]);
 
         $category = Category::create($validated);
@@ -75,6 +76,7 @@ class CategoryController extends Controller
             ],
             'price' => 'sometimes|required|integer|min:0',
             'description' => 'nullable|string',
+            'actif' => 'sometimes|boolean',
         ]);
 
         $category->update($validated);

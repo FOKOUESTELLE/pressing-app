@@ -14,10 +14,12 @@ class Category extends Model
         'name',
         'price',
         'description',
+        'actif',
     ];
 
     protected $casts = [
         'price' => 'integer',
+        'actif' => 'boolean',
     ];
 
      public function orderItems()

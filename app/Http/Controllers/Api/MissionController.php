@@ -38,7 +38,7 @@ class MissionController extends Controller
             ->exists();
     }
 
-   public function index(Request $request)
+public function index(Request $request)
     {
         $user = $request->user();
 
@@ -47,13 +47,13 @@ class MissionController extends Controller
             'coursier:id,name,phone',
         ])->latest();
 
-        // Le coursier voit uniquement ses missions.
+        // Le coursier consulte uniquement ses propres missions.
         if ($user->role === 'COURSIER') {
             $query->where('coursier_id', $user->id);
         }
 
-        // Le responsable voit uniquement les missions
-        // liées à ses propres commandes.
+        // Le responsable consulte uniquement les missions
+        // des commandes qui lui sont attribuées.
         elseif ($user->role === 'RESPONSABLE') {
             $query->whereHas('order', function ($q) use ($user) {
                 $q->where('manager_id', $user->id);
@@ -64,13 +64,6 @@ class MissionController extends Controller
             'success' => true,
             'data' => $query->paginate(20),
         ]);
-
-        if (! $this->responsableCanAccessMission($user, $mission)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette mission ne vous est pas attribuée.',
-            ], 403);
-        }
     }
 
     public function store(Request $request)

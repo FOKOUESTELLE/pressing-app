@@ -27,6 +27,9 @@ Route::put('/user/profile', [UserController::class, 'updateProfile'])
 Route::put('/user/change-password', [UserController::class, 'changePassword'])
     ->middleware('auth:sanctum');
 
+Route::get('/coursiers', [UserController::class, 'coursiers'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+
 Route::apiResource('categories', CategoryController::class)
      ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 

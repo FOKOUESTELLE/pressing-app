@@ -169,4 +169,18 @@ public function changePassword(Request $request)
             'message' => 'Votre mot de passe a été modifié avec succès.',
         ]);
     }
+
+    public function coursiers()
+    {
+        $coursiers = User::where('role', 'COURSIER')
+            ->whereNull('deleted_at')
+            ->select('id', 'name', 'phone')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $coursiers,
+        ]);
+    }
 }
