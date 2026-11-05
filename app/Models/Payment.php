@@ -23,7 +23,7 @@ class Payment extends Model
         'payment_date' => 'datetime',
     ];
 
-     public function order()
+    public function order()
     {
         return $this->belongsTo(Order::class);
     }

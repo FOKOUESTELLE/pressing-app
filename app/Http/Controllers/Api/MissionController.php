@@ -42,8 +42,9 @@ public function index(Request $request)
     {
         $user = $request->user();
 
-        $query = Mission::with([
-            'order.customer:id,name,phone',
+       $query = Mission::with([
+            'order',
+            'order.customer',
             'coursier:id,name,phone',
         ])->latest();
 

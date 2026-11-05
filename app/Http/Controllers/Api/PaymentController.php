@@ -72,18 +72,16 @@ public function store(Request $request)
         }
 
         $validated = $request->validate([
-            'amount'         => 'required|integer|min:1',
+            'amount' => 'required|integer|min:1',
             'payment_method' => 'required|in:CASH,MOBILE_MONEY,CARD',
-            'order_id'       => 'required|exists:orders,id',
+            'order_id' => 'required|exists:orders,id',
         ]);
 
         $payment = DB::transaction(function () use ($validated, $user) {
-
             $order = Order::whereKey($validated['order_id'])
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            // Un responsable ne peut payer que les commandes qui lui sont attribuées.
             if (
                 $user->role === 'RESPONSABLE' &&
                 (int) $order->manager_id !== (int) $user->id
@@ -121,15 +119,14 @@ public function store(Request $request)
             }
 
             $payment = $order->payments()->create([
-                'amount'         => $validated['amount'],
+                'amount' => $validated['amount'],
                 'payment_method' => $validated['payment_method'],
-                'payment_date'   => now(),
-                'status'         => $validated['amount'] === $remaining
+                'payment_date' => now(),
+                'status' => $validated['amount'] === $remaining
                     ? 'PAID'
                     : 'PARTIAL',
             ]);
 
-            // Création automatique du reçu.
             $payment->receipt()->create([
                 'receipt_number' => 'REC-' . now()->format('Ymd') . '-' .
                     str_pad($payment->id, 6, '0', STR_PAD_LEFT),
