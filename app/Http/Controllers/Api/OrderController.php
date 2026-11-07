@@ -325,12 +325,36 @@ class OrderController extends Controller
             'delivery_address' => 'sometimes|nullable|string|max:255',
         ];
 
-        // Seul le personnel peut modifier le statut
+        // Le personnel peut modifier le statut,
+        // mais ne peut pas déclarer directement une commande livrée.
         if ($isStaff) {
-            $rules['status'] = ['sometimes', Rule::in(self::STATUSES)];
+            $rules['status'] = [
+                'sometimes',
+                Rule::in(array_diff(self::STATUSES, ['DELIVERED'])),
+            ];
+        }
+
+        // Empêcher la livraison directe depuis la gestion des commandes
+        if ($request->input('status') === 'DELIVERED') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de livrer directement cette commande. Le coursier doit d’abord confirmer la récupération des habits, puis leur livraison.',
+            ], 422);
         }
 
         $validated = $request->validate($rules);
+
+        // Vérifier que la commande est entièrement payée avant livraison
+        if (($validated['status'] ?? null) === 'DELIVERED') {
+            $montantPaye = $order->payments()->sum('amount');
+
+            if ($montantPaye < $order->total) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Impossible de livrer cette commande : le paiement n’est pas entièrement réglé.',
+                ], 422);
+            }
+        }
 
         $order->fill($validated);
 

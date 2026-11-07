@@ -121,13 +121,6 @@ public function index(Request $request)
             'message' => 'Mission créée avec succès.',
             'data' => $mission,
         ], 201);
-
-        if (! $this->responsableCanAccessMission($user, $mission)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cette mission ne vous est pas attribuée.',
-            ], 403);
-}
     }
 
     public function show(Request $request, Mission $mission)
@@ -138,6 +131,13 @@ public function index(Request $request)
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'êtes pas autorisé à consulter cette mission.',
+            ], 403);
+        }
+
+        if (! $this->responsableCanAccessMission($user, $mission)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette mission ne vous est pas attribuée.',
             ], 403);
         }
 
@@ -191,7 +191,9 @@ public function index(Request $request)
 
             if ($isCoursier) {
                 $allowed = array_intersect($allowed, ['IN_PROGRESS', 'COMPLETED']);
-            }
+                } elseif ($user->role === 'RESPONSABLE') {
+                    $allowed = array_intersect($allowed, ['CANCELLED']);
+                }
 
             if (! in_array($newStatus, $allowed)) {
                 throw ValidationException::withMessages([

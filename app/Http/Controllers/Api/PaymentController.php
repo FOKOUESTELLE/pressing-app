@@ -127,6 +127,12 @@ public function store(Request $request)
                     : 'PARTIAL',
             ]);
 
+            if ($validated['amount'] === $remaining) {
+                $order->payments()->update([
+                    'status' => 'PAID',
+                ]);
+            }
+
             $payment->receipt()->create([
                 'receipt_number' => 'REC-' . now()->format('Ymd') . '-' .
                     str_pad($payment->id, 6, '0', STR_PAD_LEFT),
