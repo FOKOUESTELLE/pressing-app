@@ -50,4 +50,12 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+ * Les commandes de l'utilisateur.
+ */
+public function orders()
+{
+    return $this->hasMany(Order::class, 'customer_id');
+}
 }

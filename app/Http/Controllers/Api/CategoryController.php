@@ -108,4 +108,88 @@ class CategoryController extends Controller
             'message' => 'Catégorie supprimée avec succès.',
         ]);
     }
+
+    /**
+ * Afficher les catégories supprimées.
+ */
+    public function trash()
+    {
+        $categories = Category::onlyTrashed()->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $categories,
+        ]);
+    }
+    /**
+     * Restaurer une catégorie supprimée.
+     */
+    public function restore($id)
+    {
+        $category = Category::onlyTrashed()->find($id);
+
+        if (!$category) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Catégorie introuvable dans la corbeille.',
+            ], 404);
+        }
+
+        // Vérifier si une catégorie active utilise déjà ce nom.
+        $nomExiste = Category::where('name', $category->name)->exists();
+
+        if ($nomExiste) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de restaurer cette catégorie : son nom est déjà utilisé par une autre catégorie.',
+            ], 409);
+        }
+
+        try {
+            $category->restore();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Catégorie restaurée avec succès.',
+                'data' => $category,
+            ]);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La restauration a échoué en raison d’un conflit avec les données existantes.',
+            ], 409);
+        }
+    }
+
+    /**
+     * Supprimer définitivement une catégorie.
+     */
+    public function forceDelete($id)
+    {
+        $category = Category::onlyTrashed()->find($id);
+
+        if (!$category) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Catégorie introuvable dans la corbeille.',
+            ], 404);
+        }
+
+        try {
+            $category->forceDelete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Catégorie supprimée définitivement.',
+            ]);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de supprimer définitivement cette catégorie, car elle est encore liée à certaines données.',
+            ], 409);
+        }
+    }
+
 }

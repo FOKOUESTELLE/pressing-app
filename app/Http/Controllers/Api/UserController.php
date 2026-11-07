@@ -21,7 +21,100 @@ class UserController extends Controller
             'data' => $users, 
             ]);
     }
+    /**
+ * Afficher les utilisateurs supprimés.
+ */
+    public function trash()
+    {
+        $users = User::onlyTrashed()->get();
 
+        return response()->json([
+            'success' => true,
+            'data' => $users,
+        ]);
+    }
+
+    /**
+     * Restaurer un utilisateur supprimé.
+     */
+/**
+ * Restaurer un utilisateur supprimé.
+ */
+    public function restore($id)
+    {
+        $user = User::onlyTrashed()->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Utilisateur introuvable dans la corbeille.',
+            ], 404);
+        }
+
+        // Vérifier si l'adresse e-mail est déjà utilisée
+        $emailExiste = User::where('email', $user->email)->exists();
+
+        if ($emailExiste) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de restaurer cet utilisateur : son adresse e-mail est déjà utilisée par un autre compte.',
+            ], 409);
+        }
+
+        try {
+            $user->restore();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Utilisateur restauré avec succès.',
+                'data' => $user,
+            ]);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'La restauration a échoué en raison d’un conflit avec les données existantes.',
+            ], 409);
+        }
+    }
+
+    /**
+     * Supprimer définitivement un utilisateur.
+     */
+    public function forceDelete($id)
+    {
+        $user = User::onlyTrashed()->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Utilisateur introuvable dans la corbeille.',
+            ], 404);
+        }
+
+        // Empêcher la suppression définitive si le client possède des commandes
+        if ($user->role === 'CLIENT' && $user->orders()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de supprimer définitivement ce client, car il possède des commandes dans son historique.',
+            ], 409);
+        }
+
+        try {
+            $user->forceDelete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Utilisateur supprimé définitivement.',
+            ]);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de supprimer définitivement cet utilisateur, car il est encore lié à certaines données.',
+            ], 409);
+        }
+    }
     /**
      * Store a newly created resource in storage.
      */

@@ -17,6 +17,16 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])
      ->middleware('auth:sanctum');
 
+    // Gestion de la corbeille des utilisateurs
+Route::get('/users-trash', [UserController::class, 'trash'])
+    ->middleware(['auth:sanctum', 'role:ADMIN']);
+
+Route::patch('/users/{id}/restore', [UserController::class, 'restore'])
+    ->middleware(['auth:sanctum', 'role:ADMIN']);
+
+Route::delete('/users/{id}/force-delete', [UserController::class, 'forceDelete'])
+    ->middleware(['auth:sanctum', 'role:ADMIN']);
+
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -32,6 +42,16 @@ Route::get('/coursiers', [UserController::class, 'coursiers'])
 
 Route::apiResource('categories', CategoryController::class)
      ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+     
+     // Gestion de la corbeille des catégories
+Route::get('/categories-trash', [CategoryController::class, 'trash'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+
+Route::patch('/categories/{id}/restore', [CategoryController::class, 'restore'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
+
+Route::delete('/categories/{id}/force-delete', [CategoryController::class, 'forceDelete'])
+    ->middleware(['auth:sanctum', 'role:RESPONSABLE,ADMIN']);
 
 Route::apiResource('orders', OrderController::class)
      ->middleware(['auth:sanctum', 'role:CLIENT,RESPONSABLE,ADMIN']);
