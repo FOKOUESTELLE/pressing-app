@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ReceiptController;
 use App\Http\Controllers\Api\MissionController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\NotificationController;
 
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -111,3 +112,14 @@ Route::get('/users/{user}', [UserController::class, 'show'])
 Route::apiResource('users', UserController::class)
     ->except(['index', 'show'])
     ->middleware(['auth:sanctum', 'role:ADMIN']);
+
+    // Gestion des notifications
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+});
+
+Route::post('/missions/{mission}/confirm-completion', [MissionController::class, 'confirmCompletion'])
+    ->middleware(['auth:sanctum', 'role:CLIENT']);

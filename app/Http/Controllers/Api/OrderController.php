@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Models\User;
+use App\Notifications\PressingProNotification;
 
 class OrderController extends Controller
 {
@@ -58,6 +60,21 @@ class OrderController extends Controller
 
         return $order;
         });
+
+        // Notifier tous les responsables après la création de la commande
+        $responsables = User::where('role', 'RESPONSABLE')->get();
+
+        foreach ($responsables as $responsable) {
+            $responsable->notify(new PressingProNotification(
+                'Nouvelle commande',
+                'Une nouvelle commande vient d’être passée.',
+                'NEW_ORDER',
+                [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]
+            ));
+        }
 
         return response()->json([
             'success' => true,
@@ -144,6 +161,21 @@ class OrderController extends Controller
         $order->recap_status = 'AWAITING_CONFIRMATION';
         $order->save();
 
+        // Notifier le client
+        $client = User::find($order->customer_id);
+
+        if ($client) {
+            $client->notify(new PressingProNotification(
+                'Récapitulatif disponible',
+                'Le récapitulatif de votre commande est prêt. Veuillez le consulter et le confirmer.',
+                'RECAP_SENT',
+                [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]
+            ));
+        }
+
         $order->load(['customer', 'orderItems.category']);
 
         return response()->json([
@@ -174,6 +206,21 @@ class OrderController extends Controller
 
         $order->recap_status = 'CONFIRMED';
         $order->save();
+
+        // Notifier le responsable
+        $responsable = User::find($order->manager_id);
+
+        if ($responsable) {
+            $responsable->notify(new PressingProNotification(
+                'Récapitulatif confirmé',
+                'Le client a confirmé le récapitulatif de sa commande.',
+                'RECAP_CONFIRMED',
+                [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]
+            ));
+        }
 
         return response()->json([
             'success' => true,
@@ -209,6 +256,22 @@ class OrderController extends Controller
         $order->recap_status = 'CORRECTION_REQUESTED';
         $order->save();
 
+         // Notifier le responsable
+        $responsable = User::find($order->manager_id);
+
+        if ($responsable) {
+            $responsable->notify(new PressingProNotification(
+                'Correction demandée',
+                'Le client demande une correction du récapitulatif de sa commande.',
+                'RECAP_CORRECTION_REQUESTED',
+                [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'correction_message' => $order->correction_message,
+                ]
+            ));
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Votre demande de correction a été envoyée au responsable.',
@@ -241,6 +304,21 @@ class OrderController extends Controller
         $order->correction_message = null;
         $order->save();
 
+        // Notifier le client du nouvel envoi
+        $client = User::find($order->customer_id);
+
+        if ($client) {
+            $client->notify(new PressingProNotification(
+                'Récapitulatif corrigé',
+                'Le responsable a corrigé votre récapitulatif. Vous pouvez maintenant le consulter.',
+                'RECAP_RESENT',
+                [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                ]
+            ));
+        }
+        
         return response()->json([
             'success' => true,
             'message' => 'Récapitulatif envoyé avec succès.',

@@ -8,6 +8,8 @@ use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Models\User;
+use App\Notifications\PressingProNotification;
 
 class PaymentController extends Controller
 {
@@ -142,6 +144,28 @@ public function store(Request $request)
 
             return $payment;
         });
+
+        // Notifier le client du paiement enregistré
+        $order = Order::find($validated['order_id']);
+
+        $client = User::find($order->customer_id);
+
+        if ($client) {
+            $client->notify(new PressingProNotification(
+                'Paiement enregistré',
+                'Un paiement de ' . number_format($payment->amount, 0, ',', ' ') .
+                ' FCFA a été enregistré pour votre commande.',
+                'PAYMENT_RECEIVED',
+                [
+                    'payment_id' => $payment->id,
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'amount' => $payment->amount,
+                    'payment_method' => $payment->payment_method,
+                    'payment_status' => $payment->status,
+                ]
+            ));
+        }
 
         return response()->json([
             'success' => true,
